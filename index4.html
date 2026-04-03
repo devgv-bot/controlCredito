@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Control de Créditos</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<!-- SUPABASE -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<style>
+body { font-family: Arial; background:#f4f6f9; margin:0; }
+header { background:#1e293b; color:white; padding:15px; text-align:center; }
+.container { padding:15px; max-width:1200px; margin:auto; }
+
+.grid {
+  display:grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px,1fr));
+  gap:10px;
+}
+
+.card {
+  background:white;
+  padding:15px;
+  border-radius:12px;
+  margin-bottom:15px;
+  box-shadow:0 2px 8px rgba(0,0,0,0.1);
+}
+
+.table-container { overflow-x:auto; }
+
+table {
+  width:100%;
+  border-collapse:collapse;
+  min-width:600px;
+}
+
+th, td {
+  padding:10px;
+  border-bottom:1px solid #ddd;
+  text-align:center;
+}
+
+button {
+  padding:10px;
+  border:none;
+  border-radius:8px;
+  cursor:pointer;
+  width:100%;
+  margin-top:5px;
+}
+
+.btn-primary { background:#3b82f6; color:white;margin-bottom: 2%; }
+.btn-success { background:#22c55e; color:white; }
+
+/*Animacion en los botones*/
+
+button {
+  transition: all 0.2s ease;
+}
+
+button:hover {
+  background: #d1d5db;
+  color: black;
+}
+
+/*ESTADOS DE LOS PAGOS*/
+.estado {
+  padding:5px 10px;
+  border-radius:20px;
+  color:white;
+  font-size:12px;
+}
+
+.pagado { background:#22c55e; }
+.proceso { background:#facc15; color:black; }
+.pendiente { background:#ef4444; }
+
+#listaPagos .card { text-align:left; }
+
+img {
+  max-width:100%;
+  border-radius:8px;
+  margin-top:5px;
+}
+
+/* MODAL */
+#modalPago {
+  position: fixed;
+  top:0; left:0;
+  width:100%; height:100%;
+  background: rgba(0,0,0,0.5);
+  display:none;
+  justify-content:center;
+  align-items:center;
+}
+
+#modalPago .card {
+  width:90%;
+  max-width:350px;
+}
+
+.show { display:flex !important; }
+
+/*CONDICIONES DE LAS CAJAS DE TEXTO*/
+input, select {
+  width:90%;
+  padding:10px;
+  border-radius:8px;
+  border:1px solid #ccc;
+}
+
+/* ESTANDAR DE TODOS LOS CAMPOS */
+input,
+select {
+  width: 100%;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid #ccc;
+  box-sizing: border-box; /* CLAVE */
+  font-size: 14px;
+}
+
+/* Arreglar input file */
+input[type="file"] {
+  padding: 8px;
+}
+
+/* Espaciado consistente */
+#modalPago label {
+  display: block;
+  margin-bottom: 5px;
+  font-weight: 600;
+}
+
+#modalPago input,
+#modalPago select {
+  margin-bottom: 12px;
+}
+
+textarea {
+  width: 100%;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid #ccc;
+  box-sizing: border-box;
+  resize: none;
+  font-family: Arial;
+}
+
+/*--------------------------*/
+@media (max-width:600px){
+  th,td { font-size:12px; padding:8px; }
+}
+
+/*ANIMACION CUANDO SE REALIZA UN PAGO*/
+#toastPago {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  background: #22c55e;
+  color: white;
+  padding: 12px 18px;
+  border-radius: 10px;
+  font-weight: bold;
+  opacity: 0;
+  transform: scale(0.8);
+  transition: all 0.4s ease;
+  z-index: 9999;
+}
+
+#toastPago.show {
+  opacity: 1;
+  transform: scale(1);
+}
+
+</style>
+</head>
+
+<body>
+
+<header>
+  <h2>Control de Créditos</h2>
+</header>
+
+<div class="container">
+
+<div class="grid">
+  <div class="card"><h3>Global</h3><p id="totalVendido">₡0</p></div>
+  <div class="card"><h3>Total Pagado</h3><p id="totalCobrado">₡0</p></div>
+  <div class="card"><h3>Pendiente</h3><p id="totalPendiente">₡0</p></div>
+</div>
+
+<button class="btn-primary" onclick="nuevaCompra()">Nuevo Crédito</button>
+
+<div class="card table-container">
+<table>
+<thead>
+<tr>
+<th>Cliente</th>
+<th>Total</th>
+<th>Pagado</th>
+<th>Saldo</th>
+<th>Estado</th>
+<th>Acción</th>
+</tr>
+</thead>
+<tbody id="tablaCompras"></tbody>
+</table>
+</div>
+
+<div id="detalle" class="card" style="display:none;">
+<h3>Detalle de Compra</h3>
+<p id="detalleInfo"></p>
+
+<h4>Historial de Pagos</h4>
+<div id="listaPagos"></div>
+
+<button class="btn-success" onclick="abrirPago()">Realizar Pago</button>
+<button onclick="cerrarDetalle()">Volver</button>
+</div>
+
+</div>
+
+<!-- MODAL -->
+
+<div id="modalPago">
+  <div class="card">
+    <h3>Registrar Pago</h3>
+
+    <input type="number" id="montoPago" placeholder="Monto"><br><br>
+
+    <label>Fecha y hora</label>
+    <input type="datetime-local" id="fechaPago"><br><br>
+
+    <label>Método</label>
+    <select id="metodoPago">
+      <option>Efectivo</option>
+      <option>Transferencia</option>
+      <option>Sinpe</option>
+    </select><br><br>
+
+    <label>Comprobante</label>
+    <input type="file" id="comprobante"><br><br>
+
+    <div class="campo">
+      <label>Notas</label>
+      <textarea id="notaPago" placeholder="Agregar comentario..." rows="3"></textarea>
+    </div>
+
+    <button class="btn-success" onclick="guardarPago()">Guardar</button>
+    <button onclick="cerrarPago()">Cancelar</button>
+  </div>
+</div>
+
+<script>
+
+/* CONFIGURAR */
+const SUPABASE_URL = "https://udxwcclnxhgfvruqreyu.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVkeHdjY2xueGhnZnZydXFyZXl1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwOTk0MTQsImV4cCI6MjA5MDY3NTQxNH0.cL8mYoIlhkGrIcBKz5rCP_CxJ1i1nXTZPEAOW8kVWYc";
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let compras = [];
+let actual = null;
+
+/* CARGAR DATOS */
+async function cargarCompras(){
+  const { data } = await supabaseClient.from("compras").select("*");
+
+  for (let c of data){
+    const { data: pagos } = await supabaseClient
+      .from("pagos")
+      .select("*")
+      .eq("compra_id", c.id);
+
+    c.pagos = pagos || [];
+  }
+
+  compras = data;
+  render();
+}
+
+/* NUEVA COMPRA */
+async function nuevaCompra(){
+  let cliente = prompt("Nombre cliente");
+  let total = Number(prompt("Monto total"));
+  let detalle = prompt("Agregar notas(opcional)");
+
+  if(!cliente || !total) return;
+
+  await supabaseClient.from("compras").insert([{ cliente, total, detalle }]);
+
+  cargarCompras();
+}
+
+/* VER */
+function ver(id){
+  actual = compras.find(c=>c.id==id);
+
+  document.getElementById("detalle").style.display = "block";
+
+  let pagado = actual.pagos.reduce((a,b)=>a+b.monto,0);
+
+  document.getElementById("detalleInfo").innerText =
+    `Cliente: ${actual.cliente} | Total: ₡${actual.total} | Pagado: ₡${pagado} | ${actual.detalle}`;
+
+  let contenedor = document.getElementById("listaPagos");
+  contenedor.innerHTML = "";
+
+  actual.pagos.forEach(p=>{
+    contenedor.innerHTML += `
+      <div class="card">
+        <b>₡${p.monto}</b><br>
+        Fecha: ${p.fecha}<br>
+        Método: ${p.metodo}<br>
+        ${p.nota ? `<i>Nota: ${p.nota}</i><br>` : ""}
+        ${p.comprobante_url ? `<img src="${p.comprobante_url}">` : ""}
+      </div>
+    `;
+  });
+  
+let saldo = actual.total - pagado;
+
+const btnPago = document.querySelector(".btn-success");
+
+if (saldo <= 0) {
+  btnPago.disabled = true;
+  btnPago.innerText = "Pagado";
+} else {
+  btnPago.disabled = false;
+  btnPago.innerText = "Realizar Pago";
+}
+
+}
+
+/* MODAL */
+function abrirPago(){
+  document.getElementById("modalPago").classList.add("show");
+
+// Fecha automática
+  document.getElementById("fechaPago").value =
+    new Date().toISOString().slice(0,16);
+
+ // FOCO AUTOMÁTICO
+  setTimeout(() => {
+    document.getElementById("montoPago").focus();
+  }, 100);
+
+}
+
+function cerrarPago(){
+  document.getElementById("modalPago").classList.remove("show");
+  limpiarModalPago();
+}
+
+function cerrarDetalle(){
+  document.getElementById("detalle").style.display = "none";
+}
+
+/* GUARDAR PAGO */
+async function guardarPago(){
+  let monto = Number(document.getElementById("montoPago").value);
+  let fecha = document.getElementById("fechaPago").value;
+  let metodo = document.getElementById("metodoPago").value;
+  let file = document.getElementById("comprobante").files[0];
+  let nota = document.getElementById("notaPago").value;
+
+  if (!monto || monto <= 0) {
+    return alert("Los valores negativos no se admiten");
+  }
+
+  if (!fecha) {
+    return alert("Ingrese la fecha");
+  }
+
+  // VALIDAR CONTRA SALDO
+  let pagado = actual.pagos.reduce((a,b)=>a+b.monto,0);
+  let saldo = actual.total - pagado;
+
+  if (monto > saldo) {
+    return alert("El pago no puede ser mayor al saldo");
+  }
+
+  let url = null;
+
+  if(file){
+    const fileName = crypto.randomUUID() + "_" + file.name;
+
+    const { error } = await supabaseClient.storage
+      .from("comprobantes")
+      .upload(fileName, file);
+
+    if (error) {
+      console.error(error);
+      alert(error.message);
+      return;
+    }
+
+    url = supabaseClient.storage
+      .from("comprobantes")
+      .getPublicUrl(fileName).data.publicUrl;
+  }
+
+  await supabaseClient.from("pagos").insert([{
+    compra_id: actual.id,
+    monto,
+    fecha,
+    metodo,
+    comprobante_url: url,
+    nota: nota
+  }]);
+
+  cerrarPago();
+  limpiarModalPago();
+  mostrarToast();
+  cargarCompras();
+}
+
+/*ANIMACION DE REGISTRO DE PAGO*/
+
+function mostrarToast(){
+  const toast = document.getElementById("toastPago");
+  toast.classList.add("show");
+
+  setTimeout(() => {
+    toast.classList.remove("show");
+  }, 2000);
+}
+
+/*PRESIONAR ENTER PARA GUARDAR*/
+document.addEventListener("keydown", function(e) {
+  const modalAbierto = document.getElementById("modalPago").classList.contains("show");
+
+  if (modalAbierto && e.key === "Enter") {
+    e.preventDefault(); // evita comportamientos raros
+    guardarPago();
+  }
+});
+
+/*LIMPIEZA DE CAMPOS EN MODAL DE PAGOS*/
+
+function limpiarModalPago(){
+  document.getElementById("montoPago").value = "";
+  document.getElementById("fechaPago").value = "";
+  document.getElementById("metodoPago").selectedIndex = 0;
+  document.getElementById("comprobante").value = "";
+  document.getElementById("notaPago").value = "";
+}
+
+/* RENDER */
+function render(){
+  let tabla = document.getElementById("tablaCompras");
+  tabla.innerHTML = "";
+
+  let totalV=0, totalC=0;
+
+  compras.forEach(c=>{
+    let pagado = c.pagos.reduce((a,b)=>a+b.monto,0);
+    let saldo = c.total - pagado;
+
+    totalV += c.total;
+    totalC += pagado;
+
+    let estado = "pendiente";
+    if(pagado >= c.total) estado = "pagado";
+    else if(pagado > 0) estado = "proceso";
+
+    tabla.innerHTML += `
+      <tr>
+        <td>${c.cliente}</td>
+        <td>₡${c.total}</td>
+        <td>₡${pagado}</td>
+        <td>₡${saldo}</td>
+        <td><span class="estado ${estado}">${estado}</span></td>
+        <td><button onclick="ver('${c.id}')">Ver</button></td>
+      </tr>
+    `;
+  });
+
+  document.getElementById("totalVendido").innerText = "₡"+totalV;
+  document.getElementById("totalCobrado").innerText = "₡"+totalC;
+  document.getElementById("totalPendiente").innerText = "₡"+(totalV-totalC);
+}
+
+/* INIT */
+cargarCompras();
+
+</script>
+
+</body>
+<div id="toastPago">✅ Pago registrado</div>
+
+</html>
